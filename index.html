@@ -1,0 +1,461 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Gift, MapPin, Tag, Calendar, Clock, Store, CheckCircle, Circle, Info, Search, Plus, Edit2, Trash2, X, Save, AlertCircle, Check, Eraser } from 'lucide-react';
+
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyLpdOB5Gu93tUOVP4yGUxmRnt8RqX9LfGvu2qY1YB86nnS1KBWYZkbmYg-_wjwX8IA/exec";
+
+const checkExcelRedeemed = (val) => {
+  if (typeof val === 'boolean') return val;
+  if (!val) return false;
+  const str = val.toString().trim().toLowerCase();
+  return ['v', '是', 'true', '完成', '1', 'ok', '已兌換', 'y', 'yes'].includes(str);
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return '';
+  if (typeof dateString === 'string' && dateString.includes('T') && dateString.includes('Z')) {
+    try {
+      const d = new Date(dateString);
+      if (!isNaN(d.getTime())) {
+        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+      }
+    } catch (e) {
+      return dateString;
+    }
+  }
+  return String(dateString);
+};
+
+export default function App() {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [filters, setFilters] = useState({ monthDay: '', category: '', city1: '', city2: '' });
+  const [showRedeemedOnly, setShowRedeemedOnly] = useState(false); 
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [formData, setFormData] = useState({
+    store: '', offer: '', conditions: '', monthDay: '', category: '', channel: '', city1: '', city2: '', deadline: '', redeemed: false
+  });
+
+  const [alertModal, setAlertModal] = useState({ isOpen: false, text: '' });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, text: '', onConfirm: null });
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(SCRIPT_URL);
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        throw new Error("伺服器回傳格式錯誤，請確認 API 網址是否正確且已發布為「所有人」。");
+      }
+
+      if (result.status === 'error') throw new Error(result.message);
+
+      const processedData = result.map((item, index) => ({
+        ...item,
+        id: item.id || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${index}`,
+        redeemed: checkExcelRedeemed(item.redeemed)
+      }));
+      
+      setData(processedData);
+      setError(null);
+    } catch (err) {
+      console.error("Fetch error:", err);
+      setError(err.message || "無法載入資料。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const callAPI = async (action, payload, silent = false) => {
+    if (!silent) setIsSubmitting(true);
+    try {
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload })
+      });
+      
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error("Google 伺服器無回應，請確認部署版本。");
+      }
+
+      if (result.status === 'success') {
+        if (!silent) fetchData(); 
+        return true;
+      } else {
+        throw new Error(result.message || '操作失敗');
+      }
+    } catch (err) {
+      setAlertModal({ isOpen: true, text: `❌ 同步失敗：\n${err.message}` });
+      return false;
+    } finally {
+      if (!silent) setIsSubmitting(false);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const openModal = (item = null) => {
+    if (item) {
+      setEditingItem(item);
+      setFormData({ ...item, deadline: formatDate(item.deadline) });
+    } else {
+      setEditingItem(null);
+      setFormData({ store: '', offer: '', conditions: '', monthDay: '', category: '', channel: '', city1: '', city2: '', deadline: '', redeemed: false });
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.store || !formData.offer) {
+      setAlertModal({ isOpen: true, text: "請至少填寫店家與優惠項目喔！" });
+      return;
+    }
+    
+    const action = editingItem ? 'UPDATE' : 'ADD';
+    const payload = { ...formData };
+    if (editingItem) payload.id = editingItem.id;
+
+    const success = await callAPI(action, payload);
+    if (success) setIsModalOpen(false);
+  };
+
+  const handleDeleteClick = (id) => {
+    setConfirmModal({
+      isOpen: true,
+      text: "確定要刪除這筆優惠嗎？這將會同步從 Excel 中永久刪除喔！",
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: false, text: '', onConfirm: null });
+        await callAPI('DELETE', { id });
+      }
+    });
+  };
+
+  const toggleRedeem = async (item) => {
+    if (!item.id) {
+       setAlertModal({ isOpen: true, text: "這筆資料尚無 ID，請先重新整理網頁！" });
+       return;
+    }
+    const newStatus = !item.redeemed;
+    setData(prev => prev.map(d => d.id === item.id ? { ...d, redeemed: newStatus } : d));
+    
+    const success = await callAPI('TOGGLE_REDEEM', { id: item.id, redeemed: newStatus }, true);
+    if (!success) {
+      setData(prev => prev.map(d => d.id === item.id ? { ...d, redeemed: item.redeemed } : d));
+    }
+  };
+
+  const handleClearAllClick = () => {
+    setConfirmModal({
+      isOpen: true,
+      text: "確定要一鍵清除所有的「兌換狀態」與「期限」嗎？這將會同步修改 Excel 且無法復原喔！",
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: false, text: '', onConfirm: null });
+        
+        setData(prev => prev.map(d => ({ ...d, redeemed: false, deadline: '' })));
+        
+        await callAPI('CLEAR_ALL', {});
+      }
+    });
+  };
+
+  const options = useMemo(() => {
+    const monthDays = new Set();
+    const categories = new Set();
+    const cities1 = new Set();
+    const cities2 = new Set();
+
+    data.forEach(item => {
+      if (item.monthDay) monthDays.add(String(item.monthDay));
+      if (item.category) categories.add(String(item.category));
+      if (item.city1) {
+        String(item.city1).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => cities1.add(city));
+      }
+      
+      let isCity1Matched = true;
+      if (filters.city1) {
+        if (!item.city1) {
+          isCity1Matched = false;
+        } else {
+          const itemCities = String(item.city1).split(/[、,，]/).map(c => c.trim());
+          if (!itemCities.includes(filters.city1)) isCity1Matched = false;
+        }
+      }
+
+      if (isCity1Matched && item.city2) {
+        String(item.city2).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => cities2.add(city));
+      }
+    });
+
+    return {
+      monthDays: Array.from(monthDays).sort(),
+      categories: Array.from(categories).sort(),
+      cities1: Array.from(cities1).sort(),
+      cities2: Array.from(cities2).sort()
+    };
+  }, [data, filters.city1]);
+
+  const filteredData = useMemo(() => {
+    return data.filter(item => {
+      if (showRedeemedOnly && !item.redeemed) return false;
+
+      if (filters.monthDay && String(item.monthDay) !== filters.monthDay) return false;
+      if (filters.category && String(item.category) !== filters.category) return false;
+      if (filters.city1) {
+        if (!item.city1) return false;
+        const itemCities = String(item.city1).split(/[、,，]/).map(c => c.trim());
+        if (!itemCities.includes(filters.city1)) return false;
+      }
+      if (filters.city2) {
+        if (!item.city2) return false;
+        const itemCities2 = String(item.city2).split(/[、,，]/).map(c => c.trim());
+        if (!itemCities2.includes(filters.city2)) return false;
+      }
+      return true;
+    });
+  }, [data, filters, showRedeemedOnly]);
+
+  const totalRedeemedCount = data.filter(item => item.redeemed).length;
+
+  if (loading && data.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#fff8eb]" style={{ fontFamily: '"Kiwi Maru", serif' }}>
+        <div className="text-6xl animate-bounce mb-4">🎂</div>
+        <p className="text-pink-600 font-bold text-2xl animate-pulse">正在連線至 Excel...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#fff8eb] pb-12 relative" style={{ fontFamily: '"Kiwi Maru", serif' }}>
+      
+      {isSubmitting && (
+         <div className="fixed inset-0 bg-white/70 backdrop-blur-md z-[100] flex items-center justify-center transition-all">
+            <div className="bg-white px-10 py-8 rounded-3xl shadow-2xl flex flex-col items-center border-4 border-pink-200 transform scale-100 animate-in zoom-in-95">
+              <div className="text-6xl animate-spin mb-4">⏳</div>
+              <p className="text-pink-600 font-extrabold text-2xl tracking-widest">努力同步中...</p>
+              <p className="text-gray-500 mt-2 font-medium">資料即將寫入 Excel，請稍候</p>
+            </div>
+         </div>
+      )}
+
+      <div className="bg-[#fff1f2] border-b-[3px] border-pink-200 shadow-sm relative md:sticky md:top-0 z-20 pb-3 md:pb-4">
+        <div className="max-w-5xl mx-auto px-4 pt-4 md:pt-6">
+          <div className="flex flex-row flex-wrap justify-between items-center gap-2 md:gap-4">
+            
+            {/* 🎯 這裡已經將您的圖片程式碼整合進來了！ */}
+            <h1 className="text-2xl md:text-4xl font-extrabold text-[#e11d48] flex items-center gap-1 md:gap-2 drop-shadow-sm">
+              <img src="/image.png" alt="App Icon" className="w-8 h-8 md:w-10 md:h-10 rounded-xl shadow-sm object-cover" onError={(e) => e.target.style.display = 'none'} /> 
+              壽星優惠 🎁
+            </h1>
+
+            <div className="flex items-center gap-2 md:gap-3">
+              <button 
+              onClick={() => setShowRedeemedOnly(!showRedeemedOnly)}
+              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full border-2 shadow-sm flex items-center gap-1 md:gap-2 transition-all duration-300 hover:scale-105 ${
+                showRedeemedOnly 
+                  ? 'bg-pink-500 border-pink-600 text-white' 
+                  : 'bg-white border-pink-300 hover:bg-pink-50'
+              }`}
+              title="點擊查看已完成項目"
+            >
+              <span className="text-lg md:text-xl">{showRedeemedOnly ? '👀' : '🍰'}</span>
+              <span className={`font-bold text-sm md:text-lg ${showRedeemedOnly ? 'text-white' : 'text-pink-800'}`}>
+                {showRedeemedOnly ? '顯示全部' : '已完成'}: <span className={`text-lg md:text-2xl mx-0.5 md:mx-1 ${showRedeemedOnly ? 'text-white' : 'text-pink-600'}`}>{totalRedeemedCount}</span>
+              </span>
+            </button>
+            
+            <button 
+              onClick={handleClearAllClick} 
+              className="bg-white hover:bg-red-50 text-gray-500 hover:text-red-500 hover:border-red-300 p-2 md:p-3 rounded-full shadow-sm transition-transform hover:scale-110 border-2 border-gray-200" 
+              title="一鍵清除所有兌換狀態與期限"
+            >
+              <Eraser size={20} className="md:w-6 md:h-6" />
+            </button>
+
+            <button onClick={() => openModal()} className="bg-pink-500 hover:bg-pink-600 text-white p-2 md:p-3 rounded-full shadow-md transition-transform hover:scale-110" title="新增優惠">
+              <Plus size={20} className="md:w-6 md:h-6" />
+            </button>
+          </div>
+        </div>
+
+        {error && (
+            <div className="mt-3 md:mt-4 p-3 md:p-4 bg-red-50 text-red-700 rounded-xl md:rounded-2xl border border-red-200 flex items-start gap-2 shadow-inner text-sm md:text-base">
+              <AlertCircle className="shrink-0 mt-0.5 text-red-500" size={18} />
+              <div><strong className="block mb-1">連線發生錯誤：</strong>{String(error)}</div>
+            </div>
+          )}
+
+          <div className="mt-3 md:mt-6 bg-white p-3 md:p-5 rounded-2xl md:rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-2 border-pink-100 relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 md:-right-6 md:-top-6 text-5xl md:text-6xl opacity-10">🎊</div>
+            <div className="flex items-center gap-2 mb-2 md:mb-4 text-pink-600 font-bold text-base md:text-lg">
+              <Search size={18} className="md:w-5 md:h-5" />
+              <span>快速找尋您的優惠 🥳</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
+              <div className="relative">
+                <select value={filters.monthDay} onChange={(e) => setFilters({ ...filters, monthDay: e.target.value })}
+                  className="w-full appearance-none bg-pink-50 border-2 border-pink-200 text-gray-700 py-2 md:py-3 pl-8 md:pl-10 pr-6 md:pr-8 rounded-xl md:rounded-2xl focus:outline-none focus:border-pink-400 font-medium cursor-pointer text-xs md:text-base"
+                >
+                  <option value="">🍰 時效</option>
+                  {options.monthDays.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <Calendar className="absolute left-2.5 md:left-3 top-2.5 md:top-3.5 text-pink-400 w-4 h-4 md:w-[18px] md:h-[18px]" />
+              </div>
+
+              <div className="relative">
+                <select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+                  className="w-full appearance-none bg-orange-50 border-2 border-orange-200 text-gray-700 py-2 md:py-3 pl-8 md:pl-10 pr-6 md:pr-8 rounded-xl md:rounded-2xl focus:outline-none focus:border-orange-400 font-medium cursor-pointer text-xs md:text-base"
+                >
+                  <option value="">🎈 分類</option>
+                  {options.categories.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <Tag className="absolute left-2.5 md:left-3 top-2.5 md:top-3.5 text-orange-400 w-4 h-4 md:w-[18px] md:h-[18px]" />
+              </div>
+
+              <div className="relative">
+                <select value={filters.city1} onChange={(e) => setFilters({ ...filters, city1: e.target.value, city2: '' })}
+                  className="w-full appearance-none bg-yellow-50 border-2 border-yellow-200 text-gray-700 py-2 md:py-3 pl-8 md:pl-10 pr-6 md:pr-8 rounded-xl md:rounded-2xl focus:outline-none focus:border-yellow-400 font-medium cursor-pointer text-xs md:text-base"
+                >
+                  <option value="">🗺️ 地區</option>
+                  {options.cities1.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <MapPin className="absolute left-2.5 md:left-3 top-2.5 md:top-3.5 text-yellow-500 w-4 h-4 md:w-[18px] md:h-[18px]" />
+              </div>
+
+              <div className="relative">
+                <select value={filters.city2} onChange={(e) => setFilters({ ...filters, city2: e.target.value })}
+                  className="w-full appearance-none bg-green-50 border-2 border-green-200 text-gray-700 py-2 md:py-3 pl-8 md:pl-10 pr-6 md:pr-8 rounded-xl md:rounded-2xl focus:outline-none focus:border-green-400 font-medium cursor-pointer text-xs md:text-base"
+                >
+                  <option value="">🗺️ </option>
+                  {options.cities2.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <MapPin className="absolute left-2.5 md:left-3 top-2.5 md:top-3.5 text-green-500 w-4 h-4 md:w-[18px] md:h-[18px]" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 mt-6 md:mt-8">
+        {filteredData.length === 0 && !loading ? (
+          <div className="text-center py-20 bg-white/60 rounded-3xl border-2 border-dashed border-pink-200">
+            <div className="text-6xl mb-4">🥲</div>
+            <h3 className="text-2xl font-bold text-gray-600">目前沒有符合的優惠</h3>
+            <p className="text-gray-500 mt-2">點擊右上角的「＋」來新增一筆吧！</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {filteredData.map((item) => (
+              <div key={item.id} className={`relative group bg-white p-6 rounded-3xl border-2 transition-all duration-300 shadow-sm hover:shadow-xl ${item.redeemed ? 'border-green-300 opacity-80 scale-[0.98]' : 'border-pink-100 hover:-translate-y-2'}`}>
+                <div className="absolute top-4 right-4 flex gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                   <button onClick={() => openModal(item)} className="p-2 bg-yellow-100 text-yellow-600 rounded-full hover:bg-yellow-200 shadow-sm" title="編輯"><Edit2 size={16} /></button>
+                   <button onClick={() => handleDeleteClick(item.id)} className="p-2 bg-red-100 text-red-500 rounded-full hover:bg-red-200 shadow-sm" title="刪除"><Trash2 size={16} /></button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-4 pr-16">
+                  {item.monthDay && <span className="text-xs font-bold px-3 py-1.5 bg-red-50 text-red-500 border border-red-100 rounded-xl flex items-center gap-1"><Calendar size={14}/> {item.monthDay}</span>}
+                  {item.category && <span className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-500 border border-blue-100 rounded-xl flex items-center gap-1"><Tag size={14}/> {item.category}</span>}
+                  {item.city1 && <span className="text-xs font-bold px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-100 rounded-xl flex items-center gap-1"><MapPin size={14}/> {item.city1}</span>}
+                  {item.city2 && <span className="text-xs font-bold px-3 py-1.5 bg-green-50 text-green-700 border border-green-100 rounded-xl flex items-center gap-1"><MapPin size={14}/> {item.city2}</span>}
+                </div>
+
+                <div className="flex justify-between items-start gap-3">
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2 mb-2"><Store className="text-pink-400" size={24} />{item.store}</h2>
+                    <p className="text-xl text-pink-600 font-bold mb-4 flex items-start gap-2 bg-pink-50 p-2 rounded-xl inline-block">🎁 {item.offer}</p>
+                    <div className="space-y-2 text-[15px] text-gray-600">
+                      <p className="flex items-start gap-2"><Info className="shrink-0 text-gray-400 mt-1" size={18} /><span><strong className="text-gray-700">條件：</strong>{item.conditions}</span></p>
+                      <p className="flex items-center gap-2"><Store className="shrink-0 text-gray-400" size={18} /><span><strong className="text-gray-700">通路：</strong>{item.channel}</span></p>
+                      <p className="flex items-center gap-2 text-orange-600 font-bold bg-orange-50 px-2 py-1 rounded-lg w-fit"><Clock className="shrink-0 text-orange-400" size={18} /><span>期限：{formatDate(item.deadline)}</span></p>
+                    </div>
+                  </div>
+                  
+                  <button onClick={() => toggleRedeem(item)} className={`shrink-0 flex flex-col items-center justify-center w-24 h-24 rounded-[2rem] transition-all duration-300 ${item.redeemed ? 'bg-green-100 text-green-600 shadow-inner' : 'bg-white text-gray-300 hover:bg-pink-50 hover:text-pink-400 border-[3px] border-gray-100 hover:border-pink-200 shadow-md hover:shadow-lg'}`}>
+                    {item.redeemed ? (
+                      <><CheckCircle size={44} className="mb-1" strokeWidth={2.5} /><span className="text-sm font-bold">已完成!</span></>
+                    ) : (
+                      <><Circle size={44} className="mb-1" strokeWidth={2} /><span className="text-sm font-bold">點我兌換</span></>
+                    )}
+                  </button>
+                </div>
+                {item.redeemed && <div className="absolute -top-4 -right-4 text-4xl animate-bounce pointer-events-none">🎊</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-pink-100 p-4 flex justify-between items-center border-b border-pink-200">
+              <h2 className="text-2xl font-bold text-pink-700 flex items-center gap-2">{editingItem ? '✏️ 編輯優惠' : '✨ 新增超棒優惠'}</h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-pink-500 hover:text-pink-700 hover:bg-pink-200 p-1 rounded-full transition-colors"><X size={24} /></button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 sm:col-span-1"><label className="block text-sm font-bold text-gray-700 mb-1">🏪 店家名稱*</label><input type="text" name="store" value={formData.store} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 王品牛排" /></div>
+                <div className="col-span-2 sm:col-span-1"><label className="block text-sm font-bold text-gray-700 mb-1">🎁 優惠內容*</label><input type="text" name="offer" value={formData.offer} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 壽星五折" /></div>
+                <div className="col-span-2"><label className="block text-sm font-bold text-gray-700 mb-1">📝 使用條件</label><input type="text" name="conditions" value={formData.conditions} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 需出示身分證、加入會員" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">📅 時效 (當月/當日)</label><input type="text" name="monthDay" value={formData.monthDay} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 當月" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">🎈 分類</label><input type="text" name="category" value={formData.category} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 餐廳" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">📱 兌換通路</label><input type="text" name="channel" value={formData.channel} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 實體門市" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">⏳ 兌換期限</label><input type="text" name="deadline" value={formData.deadline} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 2026/12/31" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 1</label><input type="text" name="city1" value={formData.city1} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 台北、新北" /></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 2</label><input type="text" name="city2" value={formData.city2} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 台中、彰化" /></div>
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3"><button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200 transition-colors">取消</button><button onClick={handleSave} className="px-6 py-2 rounded-xl font-bold bg-pink-500 text-white hover:bg-pink-600 transition-colors flex items-center gap-2 shadow-md"><Save size={18} /> 儲存</button></div>
+          </div>
+        </div>
+      )}
+
+      {alertModal.isOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center border-2 border-pink-100">
+             <div className="text-4xl mb-3">💬</div>
+             <p className="text-gray-800 font-bold mb-6 whitespace-pre-wrap">{alertModal.text}</p>
+             <button onClick={() => setAlertModal({isOpen: false, text: ''})} className="bg-pink-500 text-white px-8 py-2 rounded-xl font-bold hover:bg-pink-600 w-full">知道了</button>
+          </div>
+        </div>
+      )}
+
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-3xl shadow-2xl max-w-sm w-full border-2 border-red-100">
+             <div className="flex items-center gap-3 text-red-500 mb-4">
+               <AlertCircle size={32} />
+               <h3 className="text-xl font-bold">確認刪除</h3>
+             </div>
+             <p className="text-gray-600 font-medium mb-6">{confirmModal.text}</p>
+             <div className="flex justify-end gap-3">
+               <button onClick={() => setConfirmModal({isOpen: false, text: '', onConfirm: null})} className="px-5 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-100">取消</button>
+               <button onClick={confirmModal.onConfirm} className="px-5 py-2 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 flex items-center gap-2"><Trash2 size={16}/> 確定刪除</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      <style dangerouslySetInnerHTML={{__html: ` @import url('https://fonts.googleapis.com/css2?family=Kiwi+Maru:wght@400;500;600&display=swap'); .custom-scrollbar::-webkit-scrollbar { width: 6px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #fbcfe8; border-radius: 20px; } `}} />
+    </div>
+  );
+}
