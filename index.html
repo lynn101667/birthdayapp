@@ -255,7 +255,19 @@
           }
 
           if (isCity1Matched && item.city2) {
-            String(item.city2).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => cities2.add(city));
+            String(item.city2).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => {
+              // 特別針對「新竹」的防呆過濾機制
+              if (filters.city1) {
+                const isCity1Hsinchu = filters.city1.includes('新竹');
+                const isCity2Hsinchu = city.includes('新竹');
+                
+                // 如果縣市1選了新竹，縣市2就只能出現包含新竹的字眼
+                if (isCity1Hsinchu && !isCity2Hsinchu) return;
+                // 如果縣市1選了非新竹，縣市2就直接排除包含新竹的字眼
+                if (!isCity1Hsinchu && isCity2Hsinchu) return;
+              }
+              cities2.add(city);
+            });
           }
         });
 
@@ -269,7 +281,10 @@
 
       const filteredData = useMemo(() => {
         return data.filter(item => {
+          // 修改處：預設隱藏已兌換，點選按鈕後才顯示已兌換
           if (showRedeemedOnly && !item.redeemed) return false;
+          if (!showRedeemedOnly && item.redeemed) return false;
+
           if (filters.monthDay && String(item.monthDay) !== filters.monthDay) return false;
           if (filters.category && String(item.category) !== filters.category) return false;
           if (filters.city1) {
@@ -313,7 +328,6 @@
           <div className="bg-[#fff1f2] border-b-[3px] border-pink-200 shadow-sm md:sticky md:top-0 z-20 pb-4">
             <div className="max-w-5xl mx-auto px-4 pt-6">
               <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                {/* 🎯 這裡修正了：移除了裡面的 <img> 縮圖，保持標題簡潔 */}
                 <h1 className="text-3xl md:text-4xl font-extrabold text-[#e11d48] flex items-center gap-2 drop-shadow-sm">
                   <span>壽星優惠 🎁</span>
                 </h1>
@@ -323,11 +337,11 @@
                     className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full border-2 shadow-sm flex items-center gap-1 md:gap-2 transition-all duration-300 hover:scale-105 ${
                       showRedeemedOnly ? 'bg-pink-500 border-pink-600 text-white' : 'bg-white border-pink-300 hover:bg-pink-50'
                     }`}
-                    title="點擊查看已完成項目"
+                    title={showRedeemedOnly ? "點擊返回未完成項目" : "點擊查看已完成項目"}
                   >
-                    <span className="text-base md:text-xl">{showRedeemedOnly ? '👀' : '🍰'}</span>
+                    <span className="text-base md:text-xl">{showRedeemedOnly ? '🎁' : '🍰'}</span>
                     <span className="text-xs md:text-base font-bold">
-                      {showRedeemedOnly ? '顯示全部' : '已完成'}: <span className={showRedeemedOnly ? 'text-white font-extrabold' : 'text-pink-600 font-extrabold'}>{totalRedeemedCount}</span> 筆
+                      {showRedeemedOnly ? '看未兌換' : '已完成'}: <span className={showRedeemedOnly ? 'text-white font-extrabold' : 'text-pink-600 font-extrabold'}>{totalRedeemedCount}</span> 筆
                     </span>
                   </button>
 
@@ -412,7 +426,7 @@
               <div className="text-center py-20 bg-white/60 rounded-3xl border-2 border-dashed border-pink-200">
                 <div className="text-6xl mb-4">🥲</div>
                 <h3 className="text-2xl font-bold text-gray-600">目前沒有符合的優惠</h3>
-                <p className="text-gray-500 mt-2">點擊右上角的「＋」來新增一筆吧！</p>
+                <p className="text-gray-500 mt-2">{showRedeemedOnly ? "您還沒有完成任何優惠喔！" : "點擊右上角的「＋」來新增一筆吧！"}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
