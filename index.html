@@ -5,18 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>壽星優惠 🎁</title>
 
+  <!-- 🎯 手機桌面圖示與網頁標籤圖示設定 -->
   <link rel="icon" type="image/png" href="image.png">
   <link rel="apple-touch-icon" href="image.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="壽星優惠">
 
+  <!-- 1. 載入 Tailwind CSS (處理網頁排版與顏色) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
+  <!-- 2. 載入 React 核心庫 -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
+  <!-- 3. 載入 Babel (讓瀏覽器能直接看懂 React 的 JSX 語法) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- 4. 載入可愛的 Kiwi Maru 字體 -->
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Kiwi+Maru:wght@400;500;600&display=swap');
     body { font-family: 'Kiwi Maru', serif; background-color: #fff8eb; }
@@ -29,9 +34,9 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
-    // --- 客製化圖示 SVG 元件 (取代原本的 lucide-react 依賴) ---
+    // --- 客製化圖示 SVG 元件 ---
     const IconWrapper = ({ children, size = 24, className = "", strokeWidth = 2 }) => (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
         {children}
@@ -46,7 +51,7 @@
     const CheckCircle = (props) => <IconWrapper {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></IconWrapper>;
     const Circle = (props) => <IconWrapper {...props}><circle cx="12" cy="12" r="10"></circle></IconWrapper>;
     const Info = (props) => <IconWrapper {...props}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></IconWrapper>;
-    const Search = (props) => <IconWrapper {...props}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></IconWrapper>;
+    const SearchIcon = (props) => <IconWrapper {...props}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></IconWrapper>;
     const Plus = (props) => <IconWrapper {...props}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></IconWrapper>;
     const Edit2 = (props) => <IconWrapper {...props}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></IconWrapper>;
     const Trash2 = (props) => <IconWrapper {...props}><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></IconWrapper>;
@@ -56,7 +61,61 @@
     const Check = (props) => <IconWrapper {...props}><polyline points="20 6 9 17 4 12"></polyline></IconWrapper>;
     const Eraser = (props) => <IconWrapper {...props}><path d="M20 20H7L3 16C2.5 15.5 2.5 14.5 3 14L13 4C13.5 3.5 14.5 3.5 15 4L20 9C20.5 9.5 20.5 10.5 20 11L11 20"></path><path d="M6 11l7 7"></path></IconWrapper>;
 
-    // --- APP 主程式開始 ---
+    // 🎯 客製化：支援下拉選取現有選項，也可「輸入新選項」的組件
+    const CreatableSelect = ({ options, value, onChange, placeholder }) => {
+      const isValueInOptions = options.includes(value);
+      const [showCustomInput, setShowCustomInput] = useState(value !== '' && !isValueInOptions);
+
+      useEffect(() => {
+        if (value !== '' && !options.includes(value)) {
+          setShowCustomInput(true);
+        } else if (value === '') {
+          setShowCustomInput(false);
+        }
+      }, [value, options]);
+
+      const handleSelectChange = (e) => {
+        const val = e.target.value;
+        if (val === "___CUSTOM___") {
+          setShowCustomInput(true);
+          onChange(""); // 清空，準備輸入新值
+        } else {
+          setShowCustomInput(false);
+          onChange(val);
+        }
+      };
+
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="relative">
+             <select
+               value={showCustomInput ? "___CUSTOM___" : value}
+               onChange={handleSelectChange}
+               className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 appearance-none focus:border-pink-400 focus:outline-none cursor-pointer"
+             >
+               <option value="">請選擇...</option>
+               {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+               <option value="___CUSTOM___">➕ 自行輸入新選項...</option>
+             </select>
+             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+               <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+             </div>
+          </div>
+          {showCustomInput && (
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              className="w-full bg-white border-2 border-pink-300 rounded-xl px-4 py-2 focus:border-pink-500 focus:outline-none shadow-sm transition-all animate-in fade-in slide-in-from-top-1"
+              autoFocus
+            />
+          )}
+        </div>
+      );
+    };
+
+    // --- APP 主程式 ---
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyLpdOB5Gu93tUOVP4yGUxmRnt8RqX9LfGvu2qY1YB86nnS1KBWYZkbmYg-_wjwX8IA/exec";
 
     const checkExcelRedeemed = (val) => {
@@ -87,6 +146,7 @@
       const [error, setError] = useState(null);
       const [isSubmitting, setIsSubmitting] = useState(false);
 
+      const [searchQuery, setSearchQuery] = useState('');
       const [filters, setFilters] = useState({ monthDay: '', category: '', city1: '', city2: '' });
       const [showRedeemedOnly, setShowRedeemedOnly] = useState(false);
       
@@ -181,8 +241,12 @@
       };
 
       const handleSave = async () => {
-        if (!formData.store || !formData.offer) {
-          setAlertModal({ isOpen: true, text: "請至少填寫店家與優惠項目喔！" });
+        // 🎯 防呆必填檢查：加入時效、分類、所在縣市1
+        if (!formData.store || !formData.offer || !formData.monthDay || !formData.category || !formData.city1) {
+          setAlertModal({ 
+            isOpen: true, 
+            text: "🚨 送出失敗！\n\n【店家名稱】\n【優惠內容】\n【時效】\n【分類】\n【所在縣市 1】\n\n以上皆為必填項目喔！請補齊資料後再儲存。" 
+          });
           return;
         }
         
@@ -222,7 +286,7 @@
       const handleClearAllClick = () => {
         setConfirmModal({
           isOpen: true,
-          text: "確定要一鍵清除所有的「兌換狀態」與「期限」嗎？這將會同步修改 Excel 且無法復原喔！",
+          text: "⚠️ 警告：確定要一鍵清除所有的「兌換狀態」與「期限」嗎？\n\n按下確定後將會立即修改您的 Excel，且無法復原喔！",
           onConfirm: async () => {
             setConfirmModal({ isOpen: false, text: '', onConfirm: null });
             setData(prev => prev.map(d => ({ ...d, redeemed: false, deadline: '' })));
@@ -231,15 +295,20 @@
         });
       };
 
+      // 提取下拉選單的唯一選項 (確保 Modal 的 CreatableSelect 也能抓到這些選項)
       const options = useMemo(() => {
         const monthDays = new Set();
         const categories = new Set();
+        const channels = new Set();
         const cities1 = new Set();
         const cities2 = new Set();
 
         data.forEach(item => {
-          if (item.monthDay) monthDays.add(String(item.monthDay));
+          if (item.monthDay) {
+            String(item.monthDay).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(md => monthDays.add(md));
+          }
           if (item.category) categories.add(String(item.category));
+          if (item.channel) channels.add(String(item.channel));
           if (item.city1) {
             String(item.city1).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => cities1.add(city));
           }
@@ -256,14 +325,11 @@
 
           if (isCity1Matched && item.city2) {
             String(item.city2).split(/[、,，]/).map(c => c.trim()).filter(c => c).forEach(city => {
-              // 特別針對「新竹」的防呆過濾機制
               if (filters.city1) {
                 const isCity1Hsinchu = filters.city1.includes('新竹');
                 const isCity2Hsinchu = city.includes('新竹');
                 
-                // 如果縣市1選了新竹，縣市2就只能出現包含新竹的字眼
                 if (isCity1Hsinchu && !isCity2Hsinchu) return;
-                // 如果縣市1選了非新竹，縣市2就直接排除包含新竹的字眼
                 if (!isCity1Hsinchu && isCity2Hsinchu) return;
               }
               cities2.add(city);
@@ -274,6 +340,7 @@
         return {
           monthDays: Array.from(monthDays).sort(),
           categories: Array.from(categories).sort(),
+          channels: Array.from(channels).sort(),
           cities1: Array.from(cities1).sort(),
           cities2: Array.from(cities2).sort()
         };
@@ -281,12 +348,25 @@
 
       const filteredData = useMemo(() => {
         return data.filter(item => {
-          // 修改處：預設隱藏已兌換，點選按鈕後才顯示已兌換
           if (showRedeemedOnly && !item.redeemed) return false;
           if (!showRedeemedOnly && item.redeemed) return false;
 
-          if (filters.monthDay && String(item.monthDay) !== filters.monthDay) return false;
+          if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            const matchStore = String(item.store || '').toLowerCase().includes(query);
+            const matchOffer = String(item.offer || '').toLowerCase().includes(query);
+            const matchCond = String(item.conditions || '').toLowerCase().includes(query);
+            if (!matchStore && !matchOffer && !matchCond) return false;
+          }
+
+          if (filters.monthDay) {
+            if (!item.monthDay) return false;
+            const itemMDs = String(item.monthDay).split(/[、,，]/).map(c => c.trim());
+            if (!itemMDs.includes(filters.monthDay)) return false;
+          }
+          
           if (filters.category && String(item.category) !== filters.category) return false;
+          
           if (filters.city1) {
             if (!item.city1) return false;
             const itemCities = String(item.city1).split(/[、,，]/).map(c => c.trim());
@@ -299,7 +379,7 @@
           }
           return true;
         });
-      }, [data, filters, showRedeemedOnly]);
+      }, [data, filters, showRedeemedOnly, searchQuery]);
 
       const totalRedeemedCount = data.filter(item => item.redeemed).length;
 
@@ -372,11 +452,24 @@
 
               <div className="mt-6 bg-white p-5 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-2 border-pink-100 relative overflow-hidden">
                 <div className="absolute -right-6 -top-6 text-6xl opacity-10">🎊</div>
-                <div className="flex items-center gap-2 mb-4 text-pink-600 font-bold text-lg">
-                  <Search size={22} />
-                  <span>快速找尋您的優惠 🥳</span>
+                
+                <div className="relative mb-5 z-10">
+                  <input 
+                    type="text" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="輸入關鍵字 (例如：店家名稱、牛排、身份證...)" 
+                    className="w-full bg-white border-[3px] border-pink-200 text-gray-800 py-3 md:py-4 pl-12 pr-12 rounded-2xl md:rounded-full focus:outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100 font-medium shadow-sm transition-all text-sm md:text-base"
+                  />
+                  <SearchIcon className="absolute left-4 top-3.5 md:top-4 text-pink-400" size={22} />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} className="absolute right-4 top-3.5 md:top-4 text-gray-400 hover:text-pink-600 transition-colors">
+                      <X size={22} />
+                    </button>
+                  )}
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 relative z-10">
                   <div className="relative">
                     <select value={filters.monthDay} onChange={(e) => setFilters({ ...filters, monthDay: e.target.value })}
                       className="w-full appearance-none bg-pink-50 border-2 border-pink-200 text-gray-700 py-2 md:py-3 pl-8 md:pl-10 pr-6 md:pr-8 rounded-xl md:rounded-2xl focus:outline-none focus:border-pink-400 font-medium cursor-pointer text-xs md:text-base"
@@ -426,7 +519,7 @@
               <div className="text-center py-20 bg-white/60 rounded-3xl border-2 border-dashed border-pink-200">
                 <div className="text-6xl mb-4">🥲</div>
                 <h3 className="text-2xl font-bold text-gray-600">目前沒有符合的優惠</h3>
-                <p className="text-gray-500 mt-2">{showRedeemedOnly ? "您還沒有完成任何優惠喔！" : "點擊右上角的「＋」來新增一筆吧！"}</p>
+                <p className="text-gray-500 mt-2">{showRedeemedOnly ? "您還沒有完成任何優惠喔！" : "試著更換關鍵字，或點擊右上角的「＋」來新增一筆吧！"}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -470,6 +563,7 @@
             )}
           </div>
 
+          {/* 🎯 新增/編輯 Modal (已改用智慧下拉選單) */}
           {isModalOpen && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -479,15 +573,70 @@
                 </div>
                 <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2 sm:col-span-1"><label className="block text-sm font-bold text-gray-700 mb-1">🏪 店家名稱*</label><input type="text" name="store" value={formData.store} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 王品牛排" /></div>
-                    <div className="col-span-2 sm:col-span-1"><label className="block text-sm font-bold text-gray-700 mb-1">🎁 優惠內容*</label><input type="text" name="offer" value={formData.offer} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 壽星五折" /></div>
-                    <div className="col-span-2"><label className="block text-sm font-bold text-gray-700 mb-1">📝 使用條件</label><input type="text" name="conditions" value={formData.conditions} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 需出示身分證、加入會員" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">📅 時效 (當月/當日)</label><input type="text" name="monthDay" value={formData.monthDay} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 當月" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">🎈 分類</label><input type="text" name="category" value={formData.category} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 餐廳" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">📱 兌換通路</label><input type="text" name="channel" value={formData.channel} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 實體門市" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">⏳ 兌換期限</label><input type="text" name="deadline" value={formData.deadline} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 2026/12/31" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 1</label><input type="text" name="city1" value={formData.city1} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 台北、新北" /></div>
-                    <div><label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 2</label><input type="text" name="city2" value={formData.city2} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 台中、彰化" /></div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="block text-sm font-bold text-gray-700 mb-1">🏪 店家名稱<span className="text-red-500">*</span></label>
+                      <input type="text" name="store" value={formData.store} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 王品牛排" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="block text-sm font-bold text-gray-700 mb-1">🎁 優惠內容<span className="text-red-500">*</span></label>
+                      <input type="text" name="offer" value={formData.offer} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 壽星五折" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-bold text-gray-700 mb-1">📝 使用條件</label>
+                      <input type="text" name="conditions" value={formData.conditions} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 需出示身分證、加入會員" />
+                    </div>
+                    
+                    {/* 🎯 智慧型下拉輸入選單 */}
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">📅 時效 (可多選)<span className="text-red-500">*</span></label>
+                      <CreatableSelect 
+                        options={options.monthDays} 
+                        value={formData.monthDay} 
+                        onChange={(val) => setFormData(prev => ({ ...prev, monthDay: val }))} 
+                        placeholder="例: 當月、當日" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">🎈 分類<span className="text-red-500">*</span></label>
+                      <CreatableSelect 
+                        options={options.categories} 
+                        value={formData.category} 
+                        onChange={(val) => setFormData(prev => ({ ...prev, category: val }))} 
+                        placeholder="輸入新分類..." 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">📱 兌換通路</label>
+                      <CreatableSelect 
+                        options={options.channels} 
+                        value={formData.channel} 
+                        onChange={(val) => setFormData(prev => ({ ...prev, channel: val }))} 
+                        placeholder="輸入新通路..." 
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">⏳ 兌換期限</label>
+                      <input type="text" name="deadline" value={formData.deadline} onChange={handleInputChange} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:border-pink-400 focus:outline-none" placeholder="例: 2026/12/31" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 1<span className="text-red-500">*</span></label>
+                      <CreatableSelect 
+                        options={options.cities1} 
+                        value={formData.city1} 
+                        onChange={(val) => setFormData(prev => ({ ...prev, city1: val }))} 
+                        placeholder="輸入新縣市..." 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">🗺️ 所在縣市 2</label>
+                      <CreatableSelect 
+                        options={options.cities2} 
+                        value={formData.city2} 
+                        onChange={(val) => setFormData(prev => ({ ...prev, city2: val }))} 
+                        placeholder="輸入新縣市..." 
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3"><button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-200 transition-colors">取消</button><button onClick={handleSave} className="px-6 py-2 rounded-xl font-bold bg-pink-500 text-white hover:bg-pink-600 transition-colors flex items-center gap-2 shadow-md"><Save size={18} /> 儲存</button></div>
@@ -512,7 +661,7 @@
                    <AlertCircle size={32} />
                    <h3 className="text-xl font-bold">確認執行</h3>
                  </div>
-                 <p className="text-gray-600 font-medium mb-6">{confirmModal.text}</p>
+                 <p className="text-gray-600 font-medium mb-6 whitespace-pre-wrap">{confirmModal.text}</p>
                  <div className="flex justify-end gap-3">
                    <button onClick={() => setConfirmModal({isOpen: false, text: '', onConfirm: null})} className="px-5 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-100">取消</button>
                    <button onClick={confirmModal.onConfirm} className="px-5 py-2 rounded-xl font-bold bg-red-500 text-white hover:bg-red-600 flex items-center gap-2"><Check size={16}/> 確定</button>
@@ -525,7 +674,6 @@
       );
     }
 
-    // 將 App 渲染到網頁上
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
